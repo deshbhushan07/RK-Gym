@@ -1,36 +1,42 @@
 // src/services/paymentService.js
 import { db } from './firebase';
 import {
-  collection, addDoc, getDocs, query,
-  orderBy, where, serverTimestamp, Timestamp
+  collection, addDoc, getDocs, serverTimestamp
 } from 'firebase/firestore';
 
 const COL = 'payments';
 
 export const addPayment = async (data) => {
-  return await addDoc(collection(db, COL), { ...data, createdAt: serverTimestamp() });
+  return await addDoc(collection(db, COL), {
+    ...data,
+    createdAt: serverTimestamp()
+  });
 };
 
 export const getPayments = async () => {
-  const q = query(collection(db, COL), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(collection(db, COL));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const aD = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
+      const bD = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
+      return bD - aD;
+    });
 };
 
 export const getPaymentsByMember = async (memberId) => {
-  const q = query(collection(db, COL), where('memberId', '==', memberId), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const all = await getPayments();
+  return all.filter(p => p.memberId === memberId);
 };
 
 export const getMonthlyRevenue = async () => {
+  const all = await getPayments();
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const q = query(
-    collection(db, COL),
-    where('createdAt', '>=', Timestamp.fromDate(start)),
-    where('status', '==', 'paid')
-  );
-  const snap = await getDocs(q);
-  return snap.docs.reduce((sum, d) => sum + (d.data().amount || 0), 0);
+  return all
+    .filter(p => {
+      if (p.status !== 'paid') return false;
+      const d = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(0);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    })
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
 };

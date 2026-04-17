@@ -3,10 +3,14 @@ import React, { useEffect, useState } from 'react';
 import { getMembers, addMember, updateMember, deleteMember } from '../services/memberService';
 import { getTrainers } from '../services/trainerService';
 import { getDietPlans } from '../services/dietService';
+import { getPayments } from '../services/paymentService';
 import { uploadToCloudinary, getInitials } from '../utils/cloudinaryUpload';
 import { toast } from 'react-toastify';
-import { FiPlus, FiSearch, FiEdit2, FiTrash2, FiX, FiUpload } from 'react-icons/fi';
+import { FiPlus, FiSearch, FiEdit2, FiTrash2, FiX, FiUpload, FiDownload } from 'react-icons/fi';
 import { format, addMonths, differenceInDays } from 'date-fns';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const PLANS = ['1 Month', '3 Months', '6 Months', '1 Year'];
 const PLAN_MONTHS = { '1 Month': 1, '3 Months': 3, '6 Months': 6, '1 Year': 12 };
@@ -16,10 +20,12 @@ export default function Members() {
   const [members, setMembers] = useState([]);
   const [trainers, setTrainers] = useState([]);
   const [diets, setDiets] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
+  const [exportMenu, setExportMenu] = useState(false);
   const [form, setForm] = useState(BLANK);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -34,11 +40,12 @@ export default function Members() {
   }, []);
 
   const load = async () => {
-    const [m, t, d] = await Promise.all([getMembers(), getTrainers(), getDietPlans()]);
-    setMembers(m); setTrainers(t); setDiets(d); setLoading(false);
+    const [m, t, d, p] = await Promise.all([getMembers(), getTrainers(), getDietPlans(), getPayments()]);
+    setMembers(m); setTrainers(t); setDiets(d); setPayments(p); setLoading(false);
   };
   useEffect(() => { load(); }, []);
 
+  // ── Helpers ──────────────────────────────────────────────
   const openAdd = () => { setForm(BLANK); setEditing(null); setImgFile(null); setImgPreview(''); setModal(true); };
   const openEdit = (m) => { setForm(m); setEditing(m.id); setImgPreview(m.photoUrl || ''); setImgFile(null); setModal(true); };
 
@@ -48,6 +55,131 @@ export default function Members() {
     setImgFile(f);
     setImgPreview(URL.createObjectURL(f));
   };
+
+  const getMemberPaymentStatus = (memberId) => {
+    const mp = payments.filter(p => p.memberId === memberId);
+    const hasPending = mp.some(p => p.status === 'pending');
+    const hasPaid = mp.some(p => p.status === 'paid');
+    if (mp.length === 0) return 'no payment';
+    if (hasPending && !hasPaid) return 'pending';
+    if (hasPaid && !hasPending) return 'paid';
+    return 'partial';
+  };
+
+  const getMemberTotalPaid = (memberId) =>
+    payments.filter(p => p.memberId === memberId && p.status === 'paid')
+      .reduce((s, p) => s + (p.amount || 0), 0);
+
+  const getExpiry = (m) => {
+    if (!m.joinDate || !m.plan) return null;
+    return addMonths(new Date(m.joinDate), PLAN_MONTHS[m.plan] || 1);
+  };
+
+  // ── Export helpers ────────────────────────────────────────
+  const buildExportRows = () =>
+    filtered.map(m => {
+      const exp = getExpiry(m);
+      const daysLeft = exp ? differenceInDays(exp, new Date()) : null;
+      const trainer = trainers.find(t => t.id === m.trainerId);
+      const payStatus = getMemberPaymentStatus(m.id);
+      const totalPaid = getMemberTotalPaid(m.id);
+      return {
+        'Member ID':   m.memberId || '—',
+        'Name':        m.name,
+        'Phone':       m.phone,
+        'Age':         m.age || '—',
+        'Gender':      m.gender || '—',
+        'Join Date':   m.joinDate ? format(new Date(m.joinDate), 'dd MMM yyyy') : '—',
+        'Plan':        m.plan,
+        'Expiry':      exp ? format(exp, 'dd MMM yyyy') : '—',
+        'Days Left':   daysLeft !== null ? (daysLeft < 0 ? `Expired ${Math.abs(daysLeft)}d ago` : `${daysLeft}d`) : '—',
+        'Trainer':     trainer?.name || '—',
+        'Fees (₹)':    m.fees || 0,
+        'Paid (₹)':    totalPaid,
+        'Payment':     payStatus,
+        'Status':      m.status,
+      };
+    });
+
+  const exportExcel = () => {
+    const rows = buildExportRows();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    // Column widths
+    ws['!cols'] = [10,20,14,6,8,14,12,14,16,16,10,10,10,10].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Members');
+    XLSX.writeFile(wb, `RKFitness_Members_${format(new Date(), 'ddMMMyyyy')}.xlsx`);
+    toast.success('Excel exported!');
+    setExportMenu(false);
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const rows = buildExportRows();
+
+    // Header
+    doc.setFillColor(14, 14, 14);
+    doc.rect(0, 0, 297, 20, 'F');
+    doc.setTextColor(232, 255, 59);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('RK FITNESS — Member Report', 14, 13);
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(9);
+    doc.text(`Vasagade, Kolhapur  |  Generated: ${format(new Date(), 'dd MMM yyyy, hh:mm a')}`, 180, 13);
+
+    autoTable(doc, {
+      startY: 24,
+      head: [Object.keys(rows[0] || {})],
+      body: rows.map(r => Object.values(r)),
+      styles: { fontSize: 7.5, cellPadding: 2.5, textColor: [220, 220, 220], fillColor: [22, 22, 22] },
+      headStyles: { fillColor: [30, 30, 30], textColor: [232, 255, 59], fontStyle: 'bold', fontSize: 8 },
+      alternateRowStyles: { fillColor: [18, 18, 18] },
+      columnStyles: {
+        12: { // Payment column
+          fontStyle: 'bold',
+        }
+      },
+      didDrawCell: (data) => {
+        if (data.column.index === 12 && data.section === 'body') {
+          const val = data.cell.raw;
+          if (val === 'paid') data.cell.styles.textColor = [34, 197, 94];
+          else if (val === 'pending') data.cell.styles.textColor = [249, 115, 22];
+          else if (val === 'partial') data.cell.styles.textColor = [59, 130, 246];
+        }
+      },
+      margin: { left: 6, right: 6 },
+    });
+
+    // Summary footer
+    const finalY = doc.lastAutoTable.finalY + 6;
+    const totalFees = filtered.reduce((s, m) => s + (m.fees || 0), 0);
+    const totalPaid = filtered.reduce((s, m) => s + getMemberTotalPaid(m.id), 0);
+    const paidCount = filtered.filter(m => getMemberPaymentStatus(m.id) === 'paid').length;
+    const pendingCount = filtered.filter(m => getMemberPaymentStatus(m.id) === 'pending').length;
+
+    doc.setFontSize(8.5);
+    doc.setTextColor(150, 150, 150);
+    doc.text(`Total Members: ${filtered.length}   |   Paid: ${paidCount}   |   Pending: ${pendingCount}   |   Total Fees: ₹${totalFees.toLocaleString()}   |   Total Collected: ₹${totalPaid.toLocaleString()}`, 14, finalY);
+
+    doc.save(`RKFitness_Members_${format(new Date(), 'ddMMMyyyy')}.pdf`);
+    toast.success('PDF exported!');
+    setExportMenu(false);
+  };
+
+  // ── Filter ───────────────────────────────────────────────
+  const filtered = members.filter(m => {
+    const q = search.toLowerCase();
+    const match = m.name?.toLowerCase().includes(q) || m.phone?.includes(q) || m.memberId?.toLowerCase().includes(q);
+    if (filter === 'active')  return match && m.status === 'active';
+    if (filter === 'expired') {
+      if (!m.joinDate || !m.plan) return false;
+      const exp = addMonths(new Date(m.joinDate), PLAN_MONTHS[m.plan] || 1);
+      return match && differenceInDays(exp, new Date()) < 0;
+    }
+    if (filter === 'pending') return match && getMemberPaymentStatus(m.id) === 'pending';
+    return match;
+  });
 
   const handleSubmit = async () => {
     if (!form.name || !form.phone || !form.joinDate) { toast.error('Name, phone, join date required'); return; }
@@ -68,23 +200,6 @@ export default function Members() {
     await deleteMember(id); toast.success('Deleted'); load();
   };
 
-  const filtered = members.filter(m => {
-    const q = search.toLowerCase();
-    const match = m.name?.toLowerCase().includes(q) || m.phone?.includes(q);
-    if (filter === 'active') return match && m.status === 'active';
-    if (filter === 'expired') {
-      if (!m.joinDate || !m.plan) return false;
-      const exp = addMonths(new Date(m.joinDate), PLAN_MONTHS[m.plan] || 1);
-      return match && differenceInDays(exp, new Date()) < 0;
-    }
-    return match;
-  });
-
-  const getExpiry = (m) => {
-    if (!m.joinDate || !m.plan) return null;
-    return addMonths(new Date(m.joinDate), PLAN_MONTHS[m.plan] || 1);
-  };
-
   const ExpiryBadge = ({ member }) => {
     const exp = getExpiry(member);
     if (!exp) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
@@ -96,6 +211,13 @@ export default function Members() {
     );
   };
 
+  const PayBadge = ({ memberId }) => {
+    const s = getMemberPaymentStatus(memberId);
+    const map = { paid: 'badge-green', pending: 'badge-orange', partial: 'badge-blue', 'no payment': 'badge-red' };
+    return <span className={`badge ${map[s] || 'badge-accent'}`}>{s}</span>;
+  };
+
+  // ── Render ───────────────────────────────────────────────
   return (
     <div>
       <div className="page-header">
@@ -103,23 +225,54 @@ export default function Members() {
           <h1 className="page-title">Members</h1>
           <p className="page-subtitle">{members.length} total · {members.filter(m => m.status === 'active').length} active</p>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}><FiPlus /> {isMobile ? 'Add' : 'Add Member'}</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {/* Export dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button className="btn btn-ghost" onClick={() => setExportMenu(v => !v)}>
+              <FiDownload /> {isMobile ? '' : 'Export'}
+            </button>
+            {exportMenu && (
+              <div style={{ position: 'absolute', right: 0, top: '110%', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, minWidth: 160, zIndex: 50, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+                <button onClick={exportPDF} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', width: '100%', color: 'var(--text-primary)', fontSize: '0.88rem', background: 'none', borderBottom: '1px solid var(--border)' }}>
+                  📄 Export PDF
+                </button>
+                <button onClick={exportExcel} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', width: '100%', color: 'var(--text-primary)', fontSize: '0.88rem', background: 'none' }}>
+                  📊 Export Excel
+                </button>
+              </div>
+            )}
+          </div>
+          <button className="btn btn-primary" onClick={openAdd}><FiPlus /> {isMobile ? 'Add' : 'Add Member'}</button>
+        </div>
       </div>
 
       {/* Filters */}
       <div className="filter-row">
-        <div className="search-bar" style={{ flex: 1, minWidth: isMobile ? '100%' : 200 }}>
+        <div className="search-bar" style={{ flex: 1 }}>
           <FiSearch className="search-icon" />
-          <input placeholder="Search by name or phone..." value={search} onChange={e => setSearch(e.target.value)} />
+          <input placeholder="Search name, phone, or ID..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="filter-btns" style={{ display: 'flex', gap: 6, ...(isMobile ? { width: '100%' } : {}) }}>
-          {['all', 'active', 'expired'].map(f => (
-            <button key={f} className={`btn ${filter === f ? 'btn-primary' : 'btn-ghost'} btn-sm`}
-              style={{ textTransform: 'capitalize', flex: isMobile ? 1 : 'unset' }} onClick={() => setFilter(f)}>
-              {f}
-            </button>
+          {[['all','All'],['active','Active'],['expired','Expired'],['pending','Pending']].map(([val, label]) => (
+            <button key={val} className={`btn ${filter === val ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+              style={{ flex: isMobile ? 1 : 'unset' }} onClick={() => setFilter(val)}>{label}</button>
           ))}
         </div>
+      </div>
+
+      {/* Summary bar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Total', val: filtered.length, color: 'var(--text-secondary)' },
+          { label: 'Paid', val: filtered.filter(m => getMemberPaymentStatus(m.id) === 'paid').length, color: 'var(--green)' },
+          { label: 'Pending', val: filtered.filter(m => getMemberPaymentStatus(m.id) === 'pending').length, color: 'var(--orange)' },
+          { label: 'Collected', val: `₹${filtered.reduce((s,m) => s + getMemberTotalPaid(m.id), 0).toLocaleString()}`, color: 'var(--accent)' },
+        ].map(s => (
+          <div key={s.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 14px', fontSize: '0.82rem' }}>
+            <span style={{ color: 'var(--text-muted)' }}>{s.label}: </span>
+            <span style={{ color: s.color, fontWeight: 600 }}>{s.val}</span>
+          </div>
+        ))}
       </div>
 
       {loading ? (
@@ -127,17 +280,13 @@ export default function Members() {
       ) : filtered.length === 0 ? (
         <div className="empty-state"><div className="empty-icon">👥</div><p>No members found</p></div>
       ) : isMobile ? (
-        /* ── MOBILE: card list ── */
+        /* ── MOBILE cards ── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map(m => {
             const trainer = trainers.find(t => t.id === m.trainerId);
             return (
-              <div key={m.id} style={{
-                background: 'var(--bg-card)', border: '1px solid var(--border)',
-                borderRadius: 12, padding: '12px 14px',
-              }}>
+              <div key={m.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px' }}>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                  {/* Avatar */}
                   {m.photoUrl ? (
                     <img src={m.photoUrl} alt={m.name} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--border)', flexShrink: 0 }} />
                   ) : (
@@ -145,51 +294,50 @@ export default function Members() {
                       {getInitials(m.name)}
                     </div>
                   )}
-                  {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{m.name}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 600, letterSpacing: '0.04em' }}>{m.memberId || '—'}</div>
+                      </div>
                       <span className={`badge ${m.status === 'active' ? 'badge-green' : 'badge-red'}`} style={{ flexShrink: 0 }}>{m.status}</span>
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 2 }}>{m.phone} · {m.gender}, {m.age}y</div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 3 }}>{m.phone} · {m.gender}, {m.age}y</div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       <span className="badge badge-accent">{m.plan}</span>
                       <ExpiryBadge member={m} />
-                      {trainer && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>👤 {trainer.name}</span>}
+                      <PayBadge memberId={m.id} />
+                      {trainer && <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>👤 {trainer.name}</span>}
                     </div>
                   </div>
                 </div>
-                {/* Actions */}
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => openEdit(m)}>
-                    <FiEdit2 /> Edit
-                  </button>
-                  <button className="btn btn-danger btn-sm" style={{ flex: 1 }} onClick={() => handleDelete(m.id, m.name)}>
-                    <FiTrash2 /> Delete
-                  </button>
+                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => openEdit(m)}><FiEdit2 /> Edit</button>
+                  <button className="btn btn-danger btn-sm" style={{ flex: 1 }} onClick={() => handleDelete(m.id, m.name)}><FiTrash2 /> Delete</button>
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        /* ── DESKTOP: table ── */
+        /* ── DESKTOP table ── */
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Member</th><th>Phone</th><th>Plan</th><th>Join Date</th>
-                  <th>Expiry</th><th>Trainer</th><th>Status</th><th>Actions</th>
+                  <th>ID</th><th>Member</th><th>Phone</th><th>Plan</th>
+                  <th>Expiry</th><th>Payment</th><th>Trainer</th><th>Status</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(m => {
-                  const exp = getExpiry(m);
-                  const daysLeft = exp ? differenceInDays(exp, new Date()) : null;
                   const trainer = trainers.find(t => t.id === m.trainerId);
                   return (
                     <tr key={m.id}>
+                      <td style={{ fontFamily: 'var(--font-display)', fontSize: '0.85rem', color: 'var(--accent)', letterSpacing: '0.04em' }}>
+                        {m.memberId || '—'}
+                      </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           {m.photoUrl ? (
@@ -199,22 +347,14 @@ export default function Members() {
                           )}
                           <div>
                             <div style={{ fontWeight: 500 }}>{m.name}</div>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{m.gender}, {m.age}y</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{m.gender}, {m.age}y</div>
                           </div>
                         </div>
                       </td>
                       <td style={{ color: 'var(--text-secondary)' }}>{m.phone}</td>
                       <td><span className="badge badge-accent">{m.plan}</span></td>
-                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                        {m.joinDate ? format(new Date(m.joinDate), 'dd MMM yyyy') : '—'}
-                      </td>
-                      <td>
-                        {exp ? (
-                          <span className={`badge ${daysLeft < 0 ? 'badge-red' : daysLeft <= 7 ? 'badge-orange' : 'badge-green'}`}>
-                            {daysLeft < 0 ? `Exp ${Math.abs(daysLeft)}d ago` : daysLeft === 0 ? 'Today' : `${daysLeft}d left`}
-                          </span>
-                        ) : '—'}
-                      </td>
+                      <td><ExpiryBadge member={m} /></td>
+                      <td><PayBadge memberId={m.id} /></td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{trainer?.name || '—'}</td>
                       <td><span className={`badge ${m.status === 'active' ? 'badge-green' : 'badge-red'}`}>{m.status}</span></td>
                       <td>
@@ -240,8 +380,6 @@ export default function Members() {
               <h2 className="modal-title" style={{ margin: 0 }}>{editing ? 'Edit Member' : 'Add Member'}</h2>
               <button className="btn btn-ghost btn-sm" onClick={() => setModal(false)}><FiX /></button>
             </div>
-
-            {/* Photo */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
               <div style={{ width: 60, height: 60, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg-hover)', border: '2px solid var(--border)', flexShrink: 0 }}>
                 {imgPreview ? (
@@ -257,7 +395,6 @@ export default function Members() {
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImg} />
               </label>
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="grid-2">
                 <div className="form-group">

@@ -10,47 +10,63 @@ const COL = 'attendance';
 export const markAttendance = async (memberId, memberName, status = 'present') => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  // check if already marked
-  const q = query(
-    collection(db, COL),
-    where('memberId', '==', memberId),
-    where('date', '>=', Timestamp.fromDate(today))
-  );
+
+  // Fetch only by memberId (single field — no index needed)
+  // Then check date client-side
+  const q = query(collection(db, COL), where('memberId', '==', memberId));
   const snap = await getDocs(q);
-  if (!snap.empty) {
-    throw new Error(`${memberName} already marked today`);
-  }
+  const alreadyMarked = snap.docs.some(d => {
+    const date = d.data().date?.toDate ? d.data().date.toDate() : null;
+    return date && date >= today;
+  });
+  if (alreadyMarked) throw new Error(`${memberName} already marked today`);
+
   return await addDoc(collection(db, COL), {
-    memberId, memberName, status,
+    memberId,
+    memberName,
+    status,
     date: serverTimestamp(),
     createdAt: serverTimestamp()
   });
 };
 
 export const getTodayAttendance = async () => {
+  // Fetch all, filter client-side — no composite index needed
+  const snap = await getDocs(collection(db, COL));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const q = query(
-    collection(db, COL),
-    where('date', '>=', Timestamp.fromDate(today)),
-    orderBy('date', 'desc')
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(a => {
+      const date = a.date?.toDate ? a.date.toDate() : null;
+      return date && date >= today;
+    })
+    .sort((a, b) => {
+      const aD = a.date?.toDate ? a.date.toDate() : new Date(0);
+      const bD = b.date?.toDate ? b.date.toDate() : new Date(0);
+      return bD - aD;
+    });
 };
 
 export const getAttendanceByMember = async (memberId) => {
-  const q = query(
-    collection(db, COL),
-    where('memberId', '==', memberId),
-    orderBy('date', 'desc')
-  );
+  const q = query(collection(db, COL), where('memberId', '==', memberId));
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const aD = a.date?.toDate ? a.date.toDate() : new Date(0);
+      const bD = b.date?.toDate ? b.date.toDate() : new Date(0);
+      return bD - aD;
+    });
 };
 
 export const getAllAttendance = async () => {
-  const q = query(collection(db, COL), orderBy('date', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(collection(db, COL));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const aD = a.date?.toDate ? a.date.toDate() : new Date(0);
+      const bD = b.date?.toDate ? b.date.toDate() : new Date(0);
+      return bD - aD;
+    });
 };

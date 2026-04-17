@@ -2,19 +2,35 @@
 import { db } from './firebase';
 import {
   collection, addDoc, getDocs, getDoc, doc,
-  updateDoc, deleteDoc, query, orderBy, serverTimestamp
+  updateDoc, deleteDoc, serverTimestamp
 } from 'firebase/firestore';
 
 const COL = 'trainers';
 
+const generateTrainerId = async () => {
+  const snap = await getDocs(collection(db, COL));
+  const count = snap.size + 1;
+  return `TRN-${String(count).padStart(3, '0')}`;
+};
+
 export const addTrainer = async (data) => {
-  return await addDoc(collection(db, COL), { ...data, createdAt: serverTimestamp() });
+  const trainerId = await generateTrainerId();
+  return await addDoc(collection(db, COL), {
+    ...data,
+    trainerId,
+    createdAt: serverTimestamp()
+  });
 };
 
 export const getTrainers = async () => {
-  const q = query(collection(db, COL), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(collection(db, COL));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const aD = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
+      const bD = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
+      return bD - aD;
+    });
 };
 
 export const getTrainer = async (id) => {

@@ -2,23 +2,36 @@
 import { db } from './firebase';
 import {
   collection, addDoc, getDocs, getDoc, doc,
-  updateDoc, deleteDoc, query, orderBy, where, serverTimestamp
+  updateDoc, deleteDoc, query, orderBy, where, serverTimestamp, getDocs as getDocsAlias
 } from 'firebase/firestore';
 
 const COL = 'members';
 
+const generateMemberId = async () => {
+  const snap = await getDocs(collection(db, COL));
+  const count = snap.size + 1;
+  return `RKF-${String(count).padStart(3, '0')}`;
+};
+
 export const addMember = async (data) => {
+  const memberId = await generateMemberId();
   return await addDoc(collection(db, COL), {
     ...data,
+    memberId,
     createdAt: serverTimestamp(),
-    status: 'active'
+    status: data.status || 'active'
   });
 };
 
 export const getMembers = async () => {
-  const q = query(collection(db, COL), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(collection(db, COL));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const aD = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
+      const bD = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
+      return bD - aD;
+    });
 };
 
 export const getMember = async (id) => {
@@ -35,7 +48,6 @@ export const deleteMember = async (id) => {
 };
 
 export const getActiveMembers = async () => {
-  const q = query(collection(db, COL), where('status', '==', 'active'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const all = await getMembers();
+  return all.filter(m => m.status === 'active');
 };
