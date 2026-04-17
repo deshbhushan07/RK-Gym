@@ -2,7 +2,7 @@
 import { db } from './firebase';
 import {
   collection, addDoc, getDocs, getDoc, doc,
-  updateDoc, deleteDoc, query, orderBy, where, serverTimestamp, getDocs as getDocsAlias
+  updateDoc, deleteDoc, serverTimestamp, getDocs
 } from 'firebase/firestore';
 
 const COL = 'members';
