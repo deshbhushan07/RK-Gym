@@ -1,8 +1,14 @@
 // src/services/memberService.js
 import { db } from './firebase';
 import {
-  collection, addDoc, getDocs, getDoc, doc,
-  updateDoc, deleteDoc, serverTimestamp, getDocs
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  doc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp
 } from 'firebase/firestore';
 
 const COL = 'members';
@@ -40,7 +46,10 @@ export const getMember = async (id) => {
 };
 
 export const updateMember = async (id, data) => {
-  return await updateDoc(doc(db, COL, id), { ...data, updatedAt: serverTimestamp() });
+  return await updateDoc(doc(db, COL, id), {
+    ...data,
+    updatedAt: serverTimestamp()
+  });
 };
 
 export const deleteMember = async (id) => {
