@@ -2,7 +2,7 @@
 import { db } from './firebase';
 import {
   collection, addDoc, getDocs, query,
-  where, orderBy, serverTimestamp, Timestamp
+  where, serverTimestamp
 } from 'firebase/firestore';
 
 const COL = 'attendance';
