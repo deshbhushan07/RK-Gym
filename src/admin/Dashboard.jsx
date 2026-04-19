@@ -7,6 +7,7 @@ import { getTrainers } from '../services/trainerService';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { FiUsers, FiTrendingUp, FiCalendar, FiUserCheck, FiAlertCircle, FiClock } from 'react-icons/fi';
 import { format, addMonths, differenceInDays } from 'date-fns';
+import { sendExpiryReminderMessage } from '../utils/whatsapp';
 
 const PLAN_MONTHS = { '1 Month': 1, '3 Months': 3, '6 Months': 6, '1 Year': 12 };
 
@@ -77,7 +78,7 @@ export default function Dashboard() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Dashboard</h1>
+          <h1 className="page-title">RK Fitness Vasagade</h1>
           <p className="page-subtitle">{format(new Date(), isMobile ? 'dd MMM yyyy' : 'EEEE, dd MMMM yyyy')}</p>
         </div>
       </div>
@@ -161,21 +162,32 @@ export default function Dashboard() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {expiringSoon.slice(0, 6).map(m => {
-                const months = PLAN_MONTHS[m.plan] || 1;
-                const exp = addMonths(new Date(m.joinDate), months);
-                const diff = differenceInDays(exp, new Date());
-                return (
-                  <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'var(--bg-hover)', borderRadius: 8 }}>
-                    <div>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 500 }}>{m.name}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{m.plan} · {m.phone}</div>
-                    </div>
-                    <span className={`badge ${diff <= 3 ? 'badge-red' : 'badge-orange'}`}>
-                      {diff === 0 ? 'Today' : `${diff}d left`}
-                    </span>
-                  </div>
-                );
-              })}
+  const months = PLAN_MONTHS[m.plan] || 1;
+  const exp = addMonths(new Date(m.joinDate), months);
+  const diff = differenceInDays(exp, new Date());
+  return (
+    <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'var(--bg-hover)', borderRadius: 8, gap: 8 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: '0.88rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{m.plan} · {m.phone}</div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+        <span className={`badge ${diff <= 3 ? 'badge-red' : 'badge-orange'}`}>
+          {diff === 0 ? 'Today' : `${diff}d left`}
+        </span>
+        <button
+          style={{ background: 'rgba(37,211,102,0.1)', border: '1px solid rgba(37,211,102,0.25)', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', color: '#25d366', cursor: 'pointer' }}
+          onClick={() => {
+            const expiry = addMonths(new Date(m.joinDate), PLAN_MONTHS[m.plan] || 1);
+            sendExpiryReminderMessage(m, format(expiry, 'dd MMM yyyy'), Math.max(0, diff));
+          }}
+        >
+          📱
+        </button>
+      </div>
+    </div>
+  );
+})}
             </div>
           )}
         </div>

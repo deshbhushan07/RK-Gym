@@ -5,6 +5,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 import { AuthProvider } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -17,30 +18,32 @@ import Attendance from './admin/Attendance';
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="members" element={<Members />} />
-            <Route path="trainers" element={<Trainers />} />
-            <Route path="payments" element={<Payments />} />
-            <Route path="diet-plans" element={<DietPlans />} />
-            <Route path="attendance" element={<Attendance />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </BrowserRouter>
-      <ToastContainer position="top-right" autoClose={3000} theme="dark" />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard"  element={<Dashboard />} />
+              <Route path="members"    element={<Members />} />
+              <Route path="trainers"   element={<Trainers />} />
+              <Route path="payments"   element={<Payments />} />
+              <Route path="diet-plans" element={<DietPlans />} />
+              <Route path="attendance" element={<Attendance />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </BrowserRouter>
+        <ToastContainer position="top-right" autoClose={3000} theme="colored" />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

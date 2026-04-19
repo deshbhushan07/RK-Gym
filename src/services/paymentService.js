@@ -1,7 +1,8 @@
 // src/services/paymentService.js
 import { db } from './firebase';
 import {
-  collection, addDoc, getDocs, serverTimestamp
+  collection, addDoc, getDocs, doc,
+  updateDoc, deleteDoc, serverTimestamp
 } from 'firebase/firestore';
 
 const COL = 'payments';
@@ -22,6 +23,17 @@ export const getPayments = async () => {
       const bD = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
       return bD - aD;
     });
+};
+
+export const updatePayment = async (id, data) => {
+  return await updateDoc(doc(db, COL, id), {
+    ...data,
+    updatedAt: serverTimestamp()
+  });
+};
+
+export const deletePayment = async (id) => {
+  return await deleteDoc(doc(db, COL, id));
 };
 
 export const getPaymentsByMember = async (memberId) => {

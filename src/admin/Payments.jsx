@@ -1,10 +1,12 @@
 // src/admin/Payments.jsx
 import React, { useEffect, useState } from 'react';
-import { getPayments, addPayment } from '../services/paymentService';
+import { getPayments, addPayment, updatePayment, deletePayment } from '../services/paymentService';
 import { getMembers } from '../services/memberService';
 import { toast } from 'react-toastify';
-import { FiPlus, FiSearch, FiX, FiTrendingUp, FiClock, FiCheckCircle } from 'react-icons/fi';
+import { FiPlus, FiSearch, FiX, FiTrendingUp, FiClock, FiCheckCircle, FiEdit2, FiTrash2, FiFileText } from 'react-icons/fi';
 import { format } from 'date-fns';
+import { generateReceiptPDF } from '../utils/receipt';
+import { sendPaymentReceiptMessage } from '../utils/whatsapp';
 
 const BLANK = { memberId: '', amount: '', method: 'cash', status: 'paid', note: '' };
 const METHODS = ['cash', 'UPI', 'card', 'bank transfer'];
@@ -17,6 +19,7 @@ export default function Payments() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(BLANK);
+  const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
@@ -32,15 +35,53 @@ export default function Payments() {
   };
   useEffect(() => { load(); }, []);
 
+  const openAdd = () => { setForm(BLANK); setEditing(null); setModal(true); };
+  const openEdit = (p) => {
+    setForm({ memberId: p.memberId, amount: p.amount, method: p.method, status: p.status, note: p.note || '' });
+    setEditing(p.id);
+    setModal(true);
+  };
+
   const handleSubmit = async () => {
     if (!form.memberId || !form.amount) { toast.error('Select member and enter amount'); return; }
     setSaving(true);
     try {
       const member = members.find(m => m.id === form.memberId);
-      await addPayment({ ...form, amount: Number(form.amount), memberName: member?.name || '' });
-      toast.success('Payment recorded'); setModal(false); load();
+      const data = { ...form, amount: Number(form.amount), memberName: member?.name || '' };
+      if (editing) {
+        await updatePayment(editing, data);
+        toast.success('Payment updated');
+      } else {
+        await addPayment(data);
+        toast.success('Payment recorded');
+      }
+      setModal(false); load();
     } catch (err) { toast.error(err.message); }
     finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this payment?')) return;
+    await deletePayment(id);
+    toast.success('Payment deleted');
+    load();
+  };
+
+  const handleReceipt = (payment) => {
+    const member = members.find(m => m.id === payment.memberId);
+    if (!member) { toast.error('Member not found'); return; }
+    generateReceiptPDF(member, payment);
+    toast.success('Receipt downloaded!');
+  };
+
+  const handleWhatsApp = (payment) => {
+    const member = members.find(m => m.id === payment.memberId);
+    if (!member) { toast.error('Member not found'); return; }
+    const months = { '1 Month': 1, '3 Months': 3, '6 Months': 6, '1 Year': 12 };
+    const { addMonths, format } = require('date-fns');
+    const joinDate = member.joinDate ? new Date(member.joinDate) : new Date();
+    const expiry = addMonths(joinDate, months[member.plan] || 1);
+    sendPaymentReceiptMessage(member, payment, format(expiry, 'dd MMM yyyy'));
   };
 
   const getMemberName = (id) => members.find(m => m.id === id)?.name || '—';
@@ -63,6 +104,24 @@ export default function Payments() {
 
   const methodColor = { cash: 'badge-green', UPI: 'badge-blue', card: 'badge-accent', 'bank transfer': 'badge-orange' };
 
+  const ActionButtons = ({ p, mobile }) => (
+    <div style={{ display: 'flex', gap: 6, ...(mobile ? { flexWrap: 'wrap' } : {}) }}>
+      <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => openEdit(p)} style={mobile ? { flex: 1 } : {}}>
+        <FiEdit2 /> {mobile ? 'Edit' : ''}
+      </button>
+      <button className="btn btn-ghost btn-sm" title="Download Receipt" onClick={() => handleReceipt(p)} style={mobile ? { flex: 1 } : {}}>
+        <FiFileText /> {mobile ? 'Receipt' : ''}
+      </button>
+      <button className="btn btn-ghost btn-sm" title="WhatsApp Receipt" onClick={() => handleWhatsApp(p)}
+        style={{ color: '#25d366', borderColor: 'rgba(37,211,102,0.3)', ...(mobile ? { flex: 1 } : {}) }}>
+        {mobile ? '📱 WhatsApp' : '📱'}
+      </button>
+      <button className="btn btn-danger btn-sm" title="Delete" onClick={() => handleDelete(p.id)} style={mobile ? { flex: 1 } : {}}>
+        <FiTrash2 /> {mobile ? 'Delete' : ''}
+      </button>
+    </div>
+  );
+
   return (
     <div>
       <div className="page-header">
@@ -70,12 +129,11 @@ export default function Payments() {
           <h1 className="page-title">Payments</h1>
           <p className="page-subtitle">{payments.length} transactions</p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(BLANK); setModal(true); }}>
+        <button className="btn btn-primary" onClick={openAdd}>
           <FiPlus /> {isMobile ? 'Add' : 'Record Payment'}
         </button>
       </div>
 
-      {/* Summary cards */}
       <div className="grid-3" style={{ marginBottom: isMobile ? 14 : 24 }}>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(232,255,59,0.12)', color: 'var(--accent)' }}><FiTrendingUp /></div>
@@ -94,7 +152,6 @@ export default function Payments() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="filter-row">
         <div className="search-bar" style={{ flex: 1 }}>
           <FiSearch className="search-icon" />
@@ -114,7 +171,6 @@ export default function Payments() {
       ) : filtered.length === 0 ? (
         <div className="empty-state"><div className="empty-icon">💳</div><p>No payments found</p></div>
       ) : isMobile ? (
-        /* ── MOBILE: cards ── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map(p => {
             const date = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt || Date.now());
@@ -124,7 +180,7 @@ export default function Payments() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{name}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>
                       {format(date, 'dd MMM yyyy')} · {format(date, 'hh:mm a')}
                     </div>
                   </div>
@@ -132,22 +188,24 @@ export default function Payments() {
                     ₹{Number(p.amount).toLocaleString()}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   <span className={`badge ${methodColor[p.method] || 'badge-accent'}`} style={{ textTransform: 'uppercase' }}>{p.method}</span>
                   <span className={`badge ${p.status === 'paid' ? 'badge-green' : 'badge-orange'}`}>{p.status}</span>
-                  {p.note && <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{p.note}</span>}
+                  {p.note && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{p.note}</span>}
+                </div>
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                  <ActionButtons p={p} mobile />
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        /* ── DESKTOP: table ── */
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table className="data-table">
               <thead>
-                <tr><th>Member</th><th>Amount</th><th>Method</th><th>Date</th><th>Status</th><th>Note</th></tr>
+                <tr><th>Member</th><th>Amount</th><th>Method</th><th>Date</th><th>Status</th><th>Note</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {filtered.map(p => {
@@ -162,6 +220,7 @@ export default function Payments() {
                       <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{format(date, 'dd MMM yyyy')}</td>
                       <td><span className={`badge ${p.status === 'paid' ? 'badge-green' : 'badge-orange'}`}>{p.status}</span></td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{p.note || '—'}</td>
+                      <td><ActionButtons p={p} /></td>
                     </tr>
                   );
                 })}
@@ -175,13 +234,13 @@ export default function Payments() {
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModal(false)}>
           <div className="modal-box">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 className="modal-title" style={{ margin: 0 }}>Record Payment</h2>
+              <h2 className="modal-title" style={{ margin: 0 }}>{editing ? 'Edit Payment' : 'Record Payment'}</h2>
               <button className="btn btn-ghost btn-sm" onClick={() => setModal(false)}><FiX /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="form-group">
                 <label className="form-label">Member *</label>
-                <select className="form-input" value={form.memberId} onChange={e => setForm({...form, memberId: e.target.value})}>
+                <select className="form-input" value={form.memberId} onChange={e => setForm({...form, memberId: e.target.value})} disabled={!!editing}>
                   <option value="">Select member...</option>
                   {members.map(m => <option key={m.id} value={m.id}>{m.name} — {m.phone}</option>)}
                 </select>
@@ -213,7 +272,7 @@ export default function Payments() {
                 <button className="btn btn-ghost" onClick={() => setModal(false)}>Cancel</button>
                 <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
                   {saving ? <span className="spinner" style={{width:16,height:16,borderWidth:2}} /> : null}
-                  {saving ? 'Saving...' : 'Record Payment'}
+                  {saving ? 'Saving...' : (editing ? 'Update' : 'Record')}
                 </button>
               </div>
             </div>
