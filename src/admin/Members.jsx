@@ -83,8 +83,8 @@ export default function Members() {
   const getPayStatus = (memberId) => {
     const mp = memberPayments(memberId);
     if (!mp.length) return 'no payment';
-    const hasPaid    = mp.some(p => p.status === 'paid');
-    const hasPend    = mp.some(p => p.status === 'pending');
+    const hasPaid  = mp.some(p => p.status === 'paid');
+    const hasPend  = mp.some(p => p.status === 'pending');
     if (hasPaid && !hasPend) return 'paid';
     if (hasPend && !hasPaid) return 'pending';
     return 'partial';
