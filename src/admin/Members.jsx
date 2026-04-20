@@ -305,7 +305,7 @@ export default function Members() {
   // Payment panel shown inside member card (mobile + desktop expand)
   const PaymentPanel = ({ member }) => {
     const mp = memberPayments(member.id);
-    const hasPending = mp.some(p => p.status === 'pending');
+    
     return (
       <div style={{
         marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)',
