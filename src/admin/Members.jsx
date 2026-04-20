@@ -9,7 +9,7 @@ import { sendAdmissionMessage, sendRenewalMessage } from '../utils/whatsapp';
 import { generateReceiptPDF } from '../utils/receipt';
 import { toast } from 'react-toastify';
 import {
-  FiPlus, FiSearch, FiEdit2, FiTrash2,
+  FiPlus, FiSearch, FiEdit2,
   FiX, FiUpload, FiDownload, FiRefreshCw,
   FiChevronDown, FiChevronUp, FiFileText, FiCheckCircle
 } from 'react-icons/fi';
@@ -84,9 +84,9 @@ export default function Members() {
     const mp = memberPayments(memberId);
     if (!mp.length) return 'no payment';
     const hasPaid    = mp.some(p => p.status === 'paid');
-    const hasPending = mp.some(p => p.status === 'pending');
-    if (hasPaid && !hasPending) return 'paid';
-    if (hasPending && !hasPaid) return 'pending';
+    const hasPend    = mp.some(p => p.status === 'pending');
+    if (hasPaid && !hasPend) return 'paid';
+    if (hasPend && !hasPaid) return 'pending';
     return 'partial';
   };
 
@@ -130,10 +130,6 @@ export default function Members() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete ${name}?`)) return;
-    await deleteMember(id); toast.success('Deleted'); load();
-  };
 
   // ── Renew ────────────────────────────────────────────────
   const openRenew = (member) => {
